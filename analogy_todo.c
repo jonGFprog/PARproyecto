@@ -74,11 +74,12 @@ void find_closest_word(float *result_vector, float *words, int numwords, int idx
         find closest word using cosine_similarity function
   ********************************************************/
   float resArriba,resAbajo,resAbajoA, sim;
+  resAbajoA=0;
   for(int j=0;j<EMB_SIZE;j++){
     resAbajoA+= pow(result_vector[j],2);
   }
   resAbajoA= sqrt(resAbajoA);
-  sim=0;
+  *max_similarity=0;
   for(int i=0;i<numwords;i++){
     if(i==idx1||i==idx2||i==idx3){
       continue;
