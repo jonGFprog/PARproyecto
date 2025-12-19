@@ -61,6 +61,9 @@ void perform_analogy(float *words, int idx1, int idx2, int idx3, float *result_v
        result_vector = word1_vector - word2_vector + word3_vector
        OSATZEKO - PARA COMPLETAR
   *****************************************************************/
+  for(int i=0;i<EMB_SIZE;i++){
+    result_vector[i]=words[idx1*EMB_SIZE+i]-words[idx2*EMB_SIZE+i]+words[idx3*EMB_SIZE+i];
+  }
  } 
 
 // Lortutako bektorearen gertukoen hitza bilatzeko funtzioa 
