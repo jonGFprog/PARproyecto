@@ -137,6 +137,9 @@ int main(int argc, char *argv[])
     Sartutako hitzen indizeak kalkulatu (idx1, idx2 & idx3) word2ind funtzioa erabilita
     Calcular los indices de las palabras introducidas (idx1, idx2 & idx3) con la funcion word2ind     
   **********************************************************************/
+  idx1=word2ind(target_word1,dictionary,numwords);
+  idx2=word2ind(target_word2,dictionary,numwords);
+  idx3=word2ind(target_word3,dictionary,numwords);
 
   if (idx1 == -1 || idx2 == -1 || idx3 == -1) {
      printf("Errorea: Ez daude hitz guztiak hiztegian / No se encontraron todas las palabras en el vocabulario.\n");
@@ -148,7 +151,9 @@ int main(int argc, char *argv[])
     //    OSATZEKO - PARA COMPLETAR
     //     1. call perform_analogy function
     //     2. call find_closest_word function   
-   /***************************************************/  
+   /***************************************************/ 
+   perform_analogy(words,idx1,idx2,idx3,result_vector); 
+   find_closest_word(result_vector,words,numwords,idx1,idx2,idx3,&closest_word_idx,&max_similarity);
   clock_gettime (CLOCK_REALTIME, &t1);   
    
     if (closest_word_idx != -1) {
