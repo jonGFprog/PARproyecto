@@ -46,10 +46,9 @@ float magnitude(float* vec, int size) {
 
 // Bi bektoreen arteko kosinu antzekotasuna kalkulatzeko funtzioa
 // Función para calcular la similitud coseno entre dos vectores
-float cosine_similarity(float* vec1, float* vec2, int size) {
-    float mag1, mag2;
-    
-    mag1 = magnitude(vec1, size);
+float cosine_similarity(float* vec1, float* vec2, int size, float mag1) {
+    float mag2;
+
     mag2 = magnitude(vec2, size);
     return dot_product(vec1, vec2, size) / (mag1 * mag2);
 }
@@ -72,7 +71,7 @@ void find_closest_word(float *result_vector, float *words, int numwords, int idx
   /*******************************************************
         OSATZEKO - PARA COMPLETAR
         find closest word using cosine_similarity function
-  ********************************************************/
+  ********************************************************
   float resArriba,resAbajo,resAbajoA, sim;
   resAbajoA=0;
   for(int j=0;j<EMB_SIZE;j++){
@@ -98,7 +97,24 @@ void find_closest_word(float *result_vector, float *words, int numwords, int idx
       *max_similarity=sim;
       *closest_word_idx=i;
     }
+  }*/
+  float sim;
+  float resAbajoA=magnitude(result_vector, EMB_SIZE);
+  *max_similarity=0;
+  for(int i=0;i<numwords;i++){
+    if(i==idx1||i==idx2||i==idx3){
+      continue;
+    }
+    
+    sim=cosine_similarity(result_vector,words+i*EMB_SIZE,EMB_SIZE,resAbajoA);
+    if(sim>*max_similarity){
+      *max_similarity=sim;
+      *closest_word_idx=i;
+    }
   }
+
+
+
 }
 
 
