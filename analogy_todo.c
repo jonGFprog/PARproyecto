@@ -73,6 +73,31 @@ void find_closest_word(float *result_vector, float *words, int numwords, int idx
         OSATZEKO - PARA COMPLETAR
         find closest word using cosine_similarity function
   ********************************************************/
+  float resArriba,resAbajo,resAbajoA, sim;
+  for(int j=0;j<EMB_SIZE;j++){
+    resAbajoA+= pow(result_vector[j],2);
+  }
+  resAbajoA= sqrt(resAbajoA);
+  sim=0;
+  for(int i=0;i<numwords;i++){
+    if(i==idx1||i==idx2||i==idx3){
+      continue;
+    }
+    resArriba=0;
+    resAbajo=0;
+    for(int j=0;j<EMB_SIZE;j++){
+      resAbajo+= pow(words[i*EMB_SIZE+j],2);
+    }
+    resAbajo= sqrt(resAbajo) * resAbajoA;
+    for(int j=0;j<EMB_SIZE;j++){
+      resArriba+= result_vector[j]*words[i*EMB_SIZE+j];
+    }
+    sim=resArriba/resAbajo;
+    if(sim>*max_similarity){
+      *max_similarity=sim;
+      *closest_word_idx=i;
+    }
+  }
 }
 
 
