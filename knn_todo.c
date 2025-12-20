@@ -45,7 +45,7 @@ float cosine_similarity(float* vec1, float* vec2, int size) {
 
 // kNN hitz guztietarako -- kNN para todas las palabras
 void knn_complet(float *words, int numwords, float *similarities) {
-    int i,j;
+  int i,j;
     
 /******************************************************************
     // Hitz bakoitzak beste guztien duen antzekotasuna kalkulatu 
@@ -53,6 +53,12 @@ void knn_complet(float *words, int numwords, float *similarities) {
 
     //    OSATZEKO - PARA COMPLETAR
 ******************************************************************/
+  for(i=0;i<numwords;i++){
+    for(j=0;j<numwords;j++){
+      similarities[i*numwords+j]=cosine_similarity(words+i*EMB_SIZE,words+j*EMB_SIZE,EMB_SIZE);    
+    }
+  }
+  
 }
 
 
@@ -95,7 +101,9 @@ int main(int argc, char *argv[])
 
     //    OSATZEKO - PARA COMPLETAR
 ******************************************************************/
-      
+  words=malloc(numwords*EMB_SIZE*sizeof(float));
+  similarities=malloc(numwords*numwords*sizeof(float));
+  
   for (i=0; i<numwords; i++) {
    for (j=0; j<EMB_SIZE; j++) {
     fscanf (f1, "%f", &(words[i*EMB_SIZE+j]));
@@ -111,6 +119,7 @@ int main(int argc, char *argv[])
     
     //    OSATZEKO - PARA COMPLETAR
 ******************************************************************/
+  knn_complet(words,numwords,similarities);
   clock_gettime (CLOCK_REALTIME, &t1);
    
   tej = (t1.tv_sec - t0.tv_sec) + (t1.tv_nsec - t0.tv_nsec) / (double)1e9;
