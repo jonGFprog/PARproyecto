@@ -64,6 +64,11 @@ double word_distance (float *word1, float *word2)
     /****************************************************************************************
       OSATZEKO - PARA COMPLETAR
     ****************************************************************************************/
+  double res;
+  for(int i=0;i<EMB_SIZE;i++){
+    res+=pow(word1[i]-word2[i],2);
+  }
+  return sqrt(res);
 }
 
 // Zentroideen hasierako balioak ausaz -- Inicializar centroides aleatoriamente
