@@ -64,7 +64,7 @@ double word_distance (float *word1, float *word2)
     /****************************************************************************************
       OSATZEKO - PARA COMPLETAR
     ****************************************************************************************/
-  double res;
+  double res=0;
   for(int i=0;i<EMB_SIZE;i++){
     res+=pow(word1[i]-word2[i],2);
   }
@@ -276,7 +276,7 @@ int main(int argc, char *argv[])
   k = NUMCLUSTERSMAX;   // hasierako kluster kopurua (20) -- numero de clusters inicial
   end_classif = 0; 
   cvi_old = -1;
-  
+  cvi=-1;
   float *centroids = (float *)malloc(k * EMB_SIZE * sizeof(float));
   int *cluster_sizes = (int *)calloc(k, sizeof(int));
   
@@ -290,7 +290,7 @@ int main(int argc, char *argv[])
   
   while (numclusters < NUMCLUSTERSMAX && end_classif == 0)
   {
-    cvi_old=cvi;
+    
     initialize_centroids(words, centroids, numwords, numclusters, EMB_SIZE);
     for (iter = 0; iter < MAX_ITER; iter++) {
       changed = 0;
@@ -323,9 +323,14 @@ int main(int argc, char *argv[])
    	if (cvi - cvi_old < DELTA) end classification;
         else  continue classification;	
     ****************************************************************************************/
+    
     cvi=validation(words,members,centroids,numclusters);
     if(cvi-cvi_old < DELTA){
       end_classif=1;
+    }
+    else{
+      numclusters+=10;
+      cvi_old=cvi;
     }
   }
   //} 
