@@ -119,6 +119,22 @@ void k_means_calculate(float *words, int numwords, int dim, int numclusters, int
            - Hitz bakoitzari cluster gertukoena esleitu cosine_similarity funtzioan oinarrituta
            - Asignar cada palabra al cluster más cercano basandose en la función cosine_similarity       
 ****************************************************************************************/
+  float cossim,cossimMax;
+  int pos;
+  for(int i=0;i<numwords;i++){ //en cuda que cada hilo haga una palabra
+    cossimMax=-100;
+    for(int j=0;j<numclusters;j++){
+      cossim=cosine_similarity(words+i*dim,centroids+j*dim,dim);
+      if(cossim>cossimMax){
+        cossimMax=cossim;
+        pos=j;
+      }
+    }
+    if(wordcent[i]!=pos){
+      wordcent[i]=pos;
+      *changed=1;
+    }
+  }
 }
 
 double cluster_homogeneity(float *words, struct clusterinfo *members, int i, int numclusters, int number)
@@ -129,6 +145,13 @@ double cluster_homogeneity(float *words, struct clusterinfo *members, int i, int
        Cluster bakoitzean, hitz bikote guztien arteko distantziak - En cada cluster, las distancias entre todos los pares de elementos
        Adi, i-j neurtuta, ez da gero j-i neurtu behar  / Ojo, una vez calculado el par i-j no hay que calcular el j-i
     ****************************************************************************************/
+    double media=0;
+    for(int i=1;i<members->number;i++){ //en cuda repartir las i entre los hilos
+      for(int j=0;j<i;j++){
+        media+=word_distance(words+members->elements[i]*EMB_SIZE,words+members->elements[j]*EMB_SIZE);
+      }
+    }
+    return media/members->number;
 }
 
 double centroid_homogeneity(float *centroids, int i, int numclusters)
@@ -136,8 +159,14 @@ double centroid_homogeneity(float *centroids, int i, int numclusters)
     /****************************************************************************************
       OSATZEKO - PARA COMPLETAR
     ****************************************************************************************/
+   double media=0;
+    for(int i=1;i<numclusters;i++){ //en cuda repartir las i entre los hilos
+      for(int j=0;j<i;j++){
+        media+=word_distance(centroids+i*EMB_SIZE,centroids+j*EMB_SIZE);
+      }
+    }
+    return media/numclusters;
 }
-
 
 double validation (float *words, struct clusterinfo *members, float *centroids, int numclusters)
 {
@@ -176,6 +205,10 @@ double validation (float *words, struct clusterinfo *members, float *centroids, 
       OSATZEKO - PARA COMPLETAR
       fmaxf: max of 2 floats --> maximoa kalkulatzeko -- para calcular el máximo
     ****************************************************************************************/
+   for(i=0; i<numclusters;i++){
+    cvi+=(cent_homog[i]-clust_homog[i])/fmaxf(clust_homog[i],cent_homog[i]);
+   }
+   cvi=cvi/numclusters;
   return (cvi);
 }
 
@@ -257,6 +290,7 @@ int main(int argc, char *argv[])
   
   while (numclusters < NUMCLUSTERSMAX && end_classif == 0)
   {
+    cvi_old=cvi;
     initialize_centroids(words, centroids, numwords, numclusters, EMB_SIZE);
     for (iter = 0; iter < MAX_ITER; iter++) {
       changed = 0;
@@ -264,6 +298,7 @@ int main(int argc, char *argv[])
       OSATZEKO - PARA COMPLETAR
        deitu k_means_calculate funtzioari -- llamar a la función k_means_calculate
     ****************************************************************************************/
+      k_means_calculate(words,numwords,EMB_SIZE,numclusters,wordcent,centroids,&changed);
       if (changed==0) break; // Aldaketarik ez bada egon, atera -- Si no hay cambios, salir
       update_centroids(words, centroids, wordcent, numwords, numclusters, EMB_SIZE, cluster_sizes);
     }  
@@ -288,14 +323,19 @@ int main(int argc, char *argv[])
    	if (cvi - cvi_old < DELTA) end classification;
         else  continue classification;	
     ****************************************************************************************/
+    cvi=validation(words,members,centroids,numclusters);
+    if(cvi-cvi_old < DELTA){
+      end_classif=1;
     }
-  } 
+  }
+  //} 
     
   clock_gettime (CLOCK_REALTIME, &t1);
 /******************************************************************/
 
-  for (i=0; i<numclusters; i++)
-  printf ("%d. cluster, %d words \n", i, cluster_sizes[i]);
+  for (i=0; i<numclusters; i++){
+    printf ("%d. cluster, %d words \n", i, cluster_sizes[i]);
+  }
 
   tej = (t1.tv_sec - t0.tv_sec) + (t1.tv_nsec - t0.tv_nsec) / (double)1e9;
   printf("\n Tej. (serie) = %1.3f ms\n\n", tej*1000);
@@ -307,9 +347,10 @@ int main(int argc, char *argv[])
     exit (-1);
   }
 
-  for (i=0; i<numwords; i++)
-     fprintf (f3, "%s \t\t -> %d cluster\n", hiztegia[i], wordcent[i]);
-   printf ("clusters written\n");
+  for (i=0; i<numwords; i++){
+    fprintf (f3, "%s \t\t -> %d cluster\n", hiztegia[i], wordcent[i]);
+  }
+  printf ("clusters written\n");
 
   fclose (f1);
   fclose (f2);
