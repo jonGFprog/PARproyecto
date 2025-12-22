@@ -4,3 +4,6 @@ knn_serie
 knn_test
 myclusters.dat
 kmeans_serie
+.vscode/c_cpp_properties.json
+.gitignore
+.vscode/launch.json
