@@ -41,7 +41,7 @@ __device__ float magnitude(float* vec, int size) {
     for (int i = 0; i < size; i++) {
         sum += vec[i] * vec[i];
     }
-    return sqrt(sum);
+    return sqrtf(sum);
 }
 
 // Bi bektoreen arteko kosinu antzekotasuna kalkulatzeko funtzioa
@@ -50,7 +50,8 @@ __device__ float cosine_similarity(float* vec1, float* vec2, int size) {
     float mag1,mag2;
     mag1 = magnitude(vec1, size);
     mag2 = magnitude(vec2, size);
-    return dot_product(vec1, vec2, size) / (mag1 * mag2);
+    float eps = 1e-8f;  // Evitar div por 0
+    return dot_product(vec1, vec2, size) / (mag1 * mag2 + eps);
 }
 
 // Analogia kalkulatzeko funtzioa
@@ -77,83 +78,47 @@ __global__ void find_closest_word(float *result_vector, float *words, int numwor
   stride=gridDim.x*blockDim.x;
 
   extern __shared__ char shared_mem[];
-  int *pos=(int*)&shared_mem[0];
-  float *sim=(float*)&shared_mem[0]+sizeof(int)*blockDim.x;
+  int *pos = (int*)shared_mem;
+  float *sim = (float*)&pos[blockDim.x];
+  float max_sim_local = -1000.0f;
+  int max_pos_local = -1;
 
-  for(int i=idx;i<numwords;i+=stride){
-    if(i==idx1||i==idx2||i==idx3){
-      sim[tid]=-1000;
-      pos[tid]=idx;
-      continue;
-    }
-    sim[tid]=cosine_similarity(result_vector,words+i*EMB_SIZE,EMB_SIZE);
+  /*__shared__ float local_result[EMB_SIZE];
+  if (tid < EMB_SIZE) {
+    local_result[tid] = result_vector[tid];
   }
+  __syncthreads();*/
+  for(int i = idx; i < numwords; i += stride){
+    if(i == idx1 || i == idx2 || i == idx3) continue;
+    float sim_val = cosine_similarity(result_vector, words+i*EMB_SIZE, EMB_SIZE);
+    if(sim_val > max_sim_local){
+      max_sim_local = sim_val;
+      max_pos_local = i;
+    }
+  }
+
+  pos[tid] = max_pos_local;
+  sim[tid] = max_sim_local;
   __syncthreads ();
-  for(stride2=1;stride2<blockDim.x;stride2*=2){
-    if ((tid % (2*stride2)) == 0){
-      if(sim[tid]<sim[tid+stride2]){
-        sim[tid]=sim[tid+stride2];
-        pos[tid]=pos[tid+stride2];
+  unsigned int active_threads = blockDim.x;
+
+  while (active_threads > 1) {
+    unsigned int half = (active_threads + 1) >> 1;
+
+    if (tid < half && (tid + half) < blockDim.x) {
+      if (sim[tid] < sim[tid + half]) {
+        sim[tid] = sim[tid + half];
+        pos[tid] = pos[tid + half];
       }
     }
-    __syncthreads ();
+    __syncthreads();
+    active_threads = half;
   }
   if(tid==0){
     out_sim[blockIdx.x]= sim[0];
     out_pos[blockIdx.x]= pos[0];
   }
-}/*
-void find_closest_word(float *result_vector, float *words, int numwords, int idx1, int idx2, int idx3, int *closest_word_idx, float *max_similarity) {
-  /*******************************************************
-        OSATZEKO - PARA COMPLETAR
-        find closest word using cosine_similarity function
-  ********************************************************
-  float resArriba,resAbajo,resAbajoA, sim;
-  resAbajoA=0;
-  for(int j=0;j<EMB_SIZE;j++){
-    resAbajoA+= pow(result_vector[j],2);
-  }
-  resAbajoA= sqrt(resAbajoA);
-  *max_similarity=0;
-  for(int i=0;i<numwords;i++){
-    if(i==idx1||i==idx2||i==idx3){
-      continue;
-    }
-    resArriba=0;
-    resAbajo=0;
-    for(int j=0;j<EMB_SIZE;j++){
-      resAbajo+= pow(words[i*EMB_SIZE+j],2);
-    }
-    resAbajo= sqrt(resAbajo) * resAbajoA;
-    for(int j=0;j<EMB_SIZE;j++){
-      resArriba+= result_vector[j]*words[i*EMB_SIZE+j];
-    }
-    sim=resArriba/resAbajo;
-    if(sim>*max_similarity){
-      *max_similarity=sim;
-      *closest_word_idx=i;
-    }
-  }
-
-
-  float sim;
-  float resAbajoA=magnitude(result_vector, EMB_SIZE);
-  *max_similarity=0;
-  for(int i=0;i<numwords;i++){ //repartir en hilos
-    if(i==idx1||i==idx2||i==idx3){
-      continue;
-    }
-    
-    sim=cosine_similarity(result_vector,words+i*EMB_SIZE,EMB_SIZE,resAbajoA);
-    if(sim>*max_similarity){
-      *max_similarity=sim;
-      *closest_word_idx=i;
-    }
-  }
-
-
-
-}*/
+}
 
 
 int main(int argc, char *argv[]) 
@@ -246,7 +211,7 @@ int main(int argc, char *argv[])
     //     1. call perform_analogy function
     //     2. call find_closest_word function   
    /***************************************************/ 
-   cudaMalloc(&d_words,VOCAB_SIZE*EMB_SIZE*sizeof(float));
+   cudaMalloc(&d_words,numwords*EMB_SIZE*sizeof(float));
    cudaMalloc(&d_result_vector,EMB_SIZE*sizeof(float));
    //cudaMalloc(&d_max_similarity,sizeof(float));
    cudaMalloc(&d_out_sim,block_amount*sizeof(float));
@@ -254,23 +219,27 @@ int main(int argc, char *argv[])
    //cudaMalloc(&d_closest_word_idx,sizeof(int));
    cudaMalloc(&d_out_pos,block_amount*sizeof(int));
 
-   cudaMemcpy(d_words,words,VOCAB_SIZE*EMB_SIZE*sizeof(float), cudaMemcpyHostToDevice);
+   cudaMemcpy(d_words,words,numwords*EMB_SIZE*sizeof(float), cudaMemcpyHostToDevice);
 
-   perform_analogy <<< block_amount,block_size >>> (d_words, idx1, idx2, idx3, d_result_vector);
-   //perform_analogy(words,idx1,idx2,idx3,result_vector);
-   find_closest_word <<< block_amount,block_size,block_size >>> (d_result_vector, d_words, numwords, idx1,idx2,idx3,d_out_sim,d_out_pos);
+   perform_analogy <<< (EMB_SIZE+block_size-1)/block_size,block_size >>> (d_words, idx1, idx2, idx3, d_result_vector);
+   cudaDeviceSynchronize();
+
+   //cudaMemcpy(result_vector,d_result_vector,EMB_SIZE*sizeof(float), cudaMemcpyDeviceToHost);
+   //for(int i=0;i<EMB_SIZE;i++) printf("result_vector[%d]= %f\n",i,result_vector[i]);
+   find_closest_word <<< block_amount,block_size,block_size*(sizeof(float)+sizeof(int)) >>> (d_result_vector, d_words, numwords, idx1,idx2,idx3,d_out_sim,d_out_pos);
   //(float *result_vector, float *words, int numwords, int idx1, int idx2, int idx3, int *closest_word_idx, float *max_similarity,float *out_sim,int *out_pos)
 
    cudaMemcpy(out_sim,d_out_sim,block_amount*sizeof(float), cudaMemcpyDeviceToHost);
    cudaMemcpy(out_pos,d_out_pos,block_amount*sizeof(int), cudaMemcpyDeviceToHost);
    max_similarity=out_sim[0];
    closest_word_idx=out_pos[0];
+   printf("i=0 similarity=%f, pos=%d\n",out_sim[0],out_pos[0]);
    for(int i=1;i<block_amount;i++){
      if(out_sim[i]>max_similarity){
       max_similarity=out_sim[i];
       closest_word_idx=out_pos[i];
-      printf("i=%d similarity=%f, pos=%d",i,out_sim[i],out_pos[i])
     }
+    printf("i=%d similarity=%f, pos=%d\n",i,out_sim[i],out_pos[i]);
    }
    clock_gettime (CLOCK_REALTIME, &t1);
    
