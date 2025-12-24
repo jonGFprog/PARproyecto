@@ -45,8 +45,6 @@ __device__ float cosine_similarity(float* vec1, float* vec2, int size) {
 
 // kNN hitz guztietarako -- kNN para todas las palabras
 __global__ void knn_complet(float *words, int numwords, float *similarities) {
-  int i,j;
-    
 /******************************************************************
     // Hitz bakoitzak beste guztien duen antzekotasuna kalkulatu 
     // Calcula la similitud de cada palabra con todas las demas
@@ -59,8 +57,8 @@ __global__ void knn_complet(float *words, int numwords, float *similarities) {
   idx=threadIdx.x+blockIdx.x*blockDim.x;
   stride=gridDim.x*blockDim.x;
   total_iteraciones=(numwords*(numwords-1))/2;
-  for(int it=idx;i<total_iteraciones;i+=stride){
-    i=(sqrt(1+8*it)-1)/2 + 1;
+  for(int it=idx;it<total_iteraciones;it+=stride){
+    i=(sqrtf(1+8*it)-1)/2 + 1;
     j=it - (i*(i-1))/2;
     similarities[i*numwords+j]=cosine_similarity(words+i*EMB_SIZE,words+j*EMB_SIZE,EMB_SIZE);
     similarities[j*numwords+i]=similarities[i*numwords+j];
@@ -71,7 +69,7 @@ __global__ void knn_complet(float *words, int numwords, float *similarities) {
 
 int main(int argc, char *argv[]) 
 {
-    int		i, j, numwords, row, col;
+    int		i, j, numwords;//, row, col;
     float 	*words;
     FILE    	*f1, *f2;
     float 	*similarities;
@@ -104,15 +102,15 @@ int main(int argc, char *argv[])
   if (argc >= 5) block_size= atoi(argv[4]);
   printf("block_size = %d\n", block_size);
   if(argc >= 6) block_amount=atoi(argv[5]);
-  printd("block_amount = %d\n",block_amount);
+  printf("block_amount = %d\n",block_amount);
 /******************************************************************
     // Memoria dinamikoki esleitu words eta similarities datu-egiturei
     // Asignar memoria dinámica a las estructuras de datos words y similarities
 
     //    OSATZEKO - PARA COMPLETAR
 ******************************************************************/
-  words=malloc(numwords*EMB_SIZE*sizeof(float));
-  similarities=malloc(numwords*numwords*sizeof(float));
+  words=(float*)malloc(numwords*EMB_SIZE*sizeof(float));
+  similarities=(float*)malloc(numwords*numwords*sizeof(float));
   
   for (i=0; i<numwords; i++) {
    for (j=0; j<EMB_SIZE; j++) {
