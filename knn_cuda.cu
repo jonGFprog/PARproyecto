@@ -56,10 +56,10 @@ __global__ void knn_complet(float *words, int numwords, float *similarities) {
 
   idx=threadIdx.x+blockIdx.x*blockDim.x;
   stride=gridDim.x*blockDim.x;
-  total_iteraciones=(numwords*(numwords-1))/2;
+  total_iteraciones=(numwords*(numwords+1))/2;
   for(int it=idx;it<total_iteraciones;it+=stride){
-    i=(sqrtf(1+8*it)-1)/2 + 1;
-    j=it - (i*(i-1))/2;
+    i=(sqrtf(1+8*it)-3)/2 + 1;
+    j=it - (i*(i+1))/2;
     similarities[i*numwords+j]=cosine_similarity(words+i*EMB_SIZE,words+j*EMB_SIZE,EMB_SIZE);
     similarities[j*numwords+i]=similarities[i*numwords+j];
   }
