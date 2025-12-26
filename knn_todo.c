@@ -53,13 +53,15 @@ void knn_complet(float *words, int numwords, float *similarities) {
 
     //    OSATZEKO - PARA COMPLETAR
 ******************************************************************/
+  int total_iterations=0;
   for(i=0;i<numwords;i++){
     for(j=0;j<i+1;j++){
+      total_iterations++;
       similarities[i*numwords+j]=cosine_similarity(words+i*EMB_SIZE,words+j*EMB_SIZE,EMB_SIZE);
-      similarities[j*numwords+i]=similarities[i*numwords+j];    
+      similarities[j*numwords+i]=similarities[i*numwords+j];
     }
   }
-  
+  printf("total_iterations = %d\n",total_iterations);
 }
 
 

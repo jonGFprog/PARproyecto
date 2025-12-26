@@ -146,11 +146,17 @@ double cluster_homogeneity(float *words, struct clusterinfo *members, int i, int
        Adi, i-j neurtuta, ez da gero j-i neurtu behar  / Ojo, una vez calculado el par i-j no hay que calcular el j-i
     ****************************************************************************************/
     double media=0;
+    for(int j=1;j<members[i].number;j++){
+      for(int k=0;k<j;k++){
+        media+=word_distance(words+members[i].elements[j]*EMB_SIZE,words+members[i].elements[k]*EMB_SIZE);
+      }
+    }
+    /*
     for(int i=1;i<members->number;i++){ //en cuda repartir las i entre los hilos
       for(int j=0;j<i;j++){
         media+=word_distance(words+members->elements[i]*EMB_SIZE,words+members->elements[j]*EMB_SIZE);
       }
-    }
+    }*/
     return media/members->number;
 }
 
@@ -160,10 +166,8 @@ double centroid_homogeneity(float *centroids, int i, int numclusters)
       OSATZEKO - PARA COMPLETAR
     ****************************************************************************************/
    double media=0;
-    for(int i=1;i<numclusters;i++){ //en cuda repartir las i entre los hilos
-      for(int j=0;j<i;j++){
-        media+=word_distance(centroids+i*EMB_SIZE,centroids+j*EMB_SIZE);
-      }
+    for(int j=1;j<numclusters;j++){ //en cuda repartir las i entre los hilos
+      media+=word_distance(centroids+i*EMB_SIZE,centroids+j*EMB_SIZE);
     }
     return media/numclusters;
 }
