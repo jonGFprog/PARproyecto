@@ -99,18 +99,20 @@ __global__ void update_centroids(float *words, float *centroids, int *wordcent, 
 
     idx=threadIdx.x+blockIdx.x*blockDim.x;
     stride=gridDim.x*blockDim.x;
-    for(int i=idx;i<numclusters;i+=stride){
+    for(i=idx;i<numclusters;i+=stride){
         cluster_sizes[i]=0;
-        for (int j = 0; j < dim; j++) {
+        for (j = 0; j < dim; j++) {
             centroids[i*dim+j] = 0.0; // Zentroideak berrasieratu -- Reinicia los centroides
         }
     }
     __syncthreads();
     for (i = idx; i < numwords; i+=stride) {
         cluster = wordcent[i];
-        cluster_sizes[cluster]++;
+        atomicAdd(&cluster_sizes[cluster],1);
+        //cluster_sizes[cluster]++;
         for (j = 0; j < dim; j++) {
-            centroids[cluster*dim+j] += words[i*dim+j];
+            atomicAdd(&centroids[cluster*dim+j],words[i*dim+j]);
+            //centroids[cluster*dim+j] += words[i*dim+j];
         }
     }
     __syncthreads();
@@ -285,7 +287,7 @@ int main(int argc, char *argv[])
 {
     int i, j, numwords, k, iter, *changed, end_classif;
     int cluster, zenb, numclusters = 20;
-    double *cvi, cvi_old, dif;
+    double *cvi, cvi_old;
     float *words;
     FILE *f1, *f2, *f3;
     char **hiztegia;
@@ -354,6 +356,8 @@ int main(int argc, char *argv[])
   end_classif = 0; 
   cvi_old = -1;
   float *centroids = (float *)malloc(k * EMB_SIZE * sizeof(float));
+  //float *centroidss = (float *)malloc(k * EMB_SIZE * sizeof(float));
+
   int *cluster_sizes = (int *)calloc(k, sizeof(int));
   
   cudaMalloc(&d_words,numwords*EMB_SIZE*sizeof(float));
@@ -377,10 +381,25 @@ int main(int argc, char *argv[])
     
     initialize_centroids(words, centroids, numwords, numclusters, EMB_SIZE); //no paralelizar
     //memcpy HostToDevice
+    /*printf("Inicializacion de centroides:\nnumclusters = %d\n",numclusters);
+    for (int cent=0;cent<numclusters;cent++){
+      printf("\ncentroide %d: ",cent);
+      for(int k=0;k<EMB_SIZE;k++){
+        printf("%f||",centroids[cent*EMB_SIZE+k]);
+      }
+    }*/
     cudaMemcpy(d_centroids,centroids,numclusters*EMB_SIZE*sizeof(float), cudaMemcpyHostToDevice);
+    //cudaMemcpy(centroidss,d_centroids,numclusters*EMB_SIZE*sizeof(float),cudaMemcpyDeviceToHost);
+    /*for (int cent=0;cent<numclusters;cent++){
+      printf("\ncentroide %d: ",cent);
+      for(int k=0;k<EMB_SIZE;k++){
+        printf("%f||",centroidss[cent*EMB_SIZE+k]);
+      }
+    }*/
+
     block_amount=numwords/block_size;
     for (iter = 0; iter < MAX_ITER; iter++) {
-      changed = 0;
+      *changed = 0;
     /****************************************************************************************
       OSATZEKO - PARA COMPLETAR
        deitu k_means_calculate funtzioari -- llamar a la función k_means_calculate
@@ -390,7 +409,8 @@ int main(int argc, char *argv[])
       k_means_calculate<<< block_amount,block_size >>>(d_words,numwords,EMB_SIZE,numclusters,d_wordcent,d_centroids,changed);//paralelizar
       //sync
       cudaDeviceSynchronize();
-      if (changed==0) break; // Aldaketarik ez bada egon, atera -- Si no hay cambios, salir
+      printf("it %d  changed =%d\n",iter,*changed);
+      if (*changed==0) break; // Aldaketarik ez bada egon, atera -- Si no hay cambios, salir
       //void update_centroids(float *words, float *centroids, int *wordcent, int numwords, int numclusters, int dim, int *cluster_sizes)
 
       update_centroids<<< block_amount,block_size >>>(d_words, d_centroids, d_wordcent, numwords, numclusters, EMB_SIZE, d_cluster_sizes);//paralelizar
@@ -420,7 +440,7 @@ int main(int argc, char *argv[])
     ****************************************************************************************/
     //void validation (float *words, struct clusterinfo *members, float *centroids, int numclusters, double *cvi)
     block_amount=numclusters*(1024/block_size2); //creo que tiene sentido ns
-    validation<<< block_amount,block_size2 >>>(d_words,d_members,d_centroids,numclusters,cvi); //paralelizar
+    validation<<< block_amount,block_size2, block_size2*sizeof(double) >>>(d_words,d_members,d_centroids,numclusters,cvi); //paralelizar
     //memcpy cvi HostToDevice
     if(*cvi-cvi_old < DELTA){
       end_classif=1;
