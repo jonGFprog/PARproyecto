@@ -29,7 +29,6 @@ __device__ double atomicAddDouble(double* address, double val) //funcion sacada 
   return __longlong_as_double(old);
 }
 
-__device__ double media_global=0;
 struct clusterinfo	 // clusterrei buruzko informazioa -- informacion de los clusters
 {
    int  elements[VOCAB_SIZE]; 	// osagaiak -- elementos
@@ -70,9 +69,7 @@ __device__ float cosine_similarity(float* vec1, float* vec2, int size) {
 // Adi: double
 __device__ double word_distance (float *word1, float *word2)
 {
-    /****************************************************************************************
-      OSATZEKO - PARA COMPLETAR
-    ****************************************************************************************/
+
   double res=0;
   for(int i=0;i<EMB_SIZE;i++){
     res+=pow(word1[i]-word2[i],2);
@@ -109,10 +106,8 @@ __global__ void update_centroids(float *words, float *centroids, int *wordcent, 
     for (i = idx; i < numwords; i+=stride) {
         cluster = wordcent[i];
         atomicAdd(&cluster_sizes[cluster],1);
-        //cluster_sizes[cluster]++;
         for (j = 0; j < dim; j++) {
             atomicAdd(&centroids[cluster*dim+j],words[i*dim+j]);
-            //centroids[cluster*dim+j] += words[i*dim+j];
         }
     }
     __syncthreads();
@@ -128,11 +123,6 @@ __global__ void update_centroids(float *words, float *centroids, int *wordcent, 
 // K-Means funtzio nagusia -- Función principal de K-Means
 __global__ void k_means_calculate(float *words, int numwords, int dim, int numclusters, int *wordcent, float *centroids, int *changed)
 {  
-/****************************************************************************************    
-           OSATZEKO - PARA COMPLETAR
-           - Hitz bakoitzari cluster gertukoena esleitu cosine_similarity funtzioan oinarrituta
-           - Asignar cada palabra al cluster más cercano basandose en la función cosine_similarity       
-****************************************************************************************/
   float cossim,cossimMax;
   int pos;
   int idx, stride;
@@ -155,19 +145,36 @@ __global__ void k_means_calculate(float *words, int numwords, int dim, int numcl
   }
 }
 
-__device__ void cluster_homogeneity(float *words, struct clusterinfo *members, int i, int numclusters, int number,char *shared_mem)
+__device__ double cluster_homogeneity(float *words, struct clusterinfo *members, int cluster_id, double *shared_mem)
 {
-    /****************************************************************************************
-      OSATZEKO - PARA COMPLETAR
-       Kideen arteko distantzien batezbestekoa - Media de las distancias entre los elementos del cluster
-       Cluster bakoitzean, hitz bikote guztien arteko distantziak - En cada cluster, las distancias entre todos los pares de elementos
-       Adi, i-j neurtuta, ez da gero j-i neurtu behar  / Ojo, una vez calculado el par i-j no hay que calcular el j-i
-    ****************************************************************************************/
-    int tid, idx, stride;
+
+    int tid, idx, stride,num_elementos;
     tid=threadIdx.x;
-    idx=threadIdx.x+blockIdx.x*blockDim.x;
-    stride=gridDim.x*blockDim.x;
-    double media_local=0;
+    num_elementos=members[cluster_id].number;
+    double media_local=0.0;
+
+    for (int idx = tid; idx < num_elementos; idx += blockDim.x) { //retocar esto
+      for (int j = 0; j < idx; j++) {
+
+        media_local += word_distance(words + members[cluster_id].elements[idx] * EMB_SIZE, words + members[cluster_id].elements[j] * EMB_SIZE);
+      }
+    }
+
+    double *media_bloque = (double*)shared_mem;
+    media_bloque[tid] = media_local;
+    __syncthreads();
+
+    for (int s = blockDim.x/2; s > 0; s >>= 1) {
+      if (tid < s) {
+        media_bloque[tid] += media_bloque[tid + s];
+      }
+      __syncthreads();
+    }
+
+    return (tid == 0) ? media_bloque[0] : 0.0;
+
+
+/*
     for(int j=idx;j<members[i].number;j+=stride){ //en cuda repartir las i entre los hilos + reduction
       for(int k=0;k<j;k++){
         media_local+=word_distance(words+members[i].elements[j]*EMB_SIZE,words+members[i].elements[k]*EMB_SIZE);
@@ -184,43 +191,91 @@ __device__ void cluster_homogeneity(float *words, struct clusterinfo *members, i
       __syncthreads();
     }
     if(tid==0){
-      atomicAddDouble(&media_global,media[0]);
-    }
+      atomicAddDouble(&media_global[i],media[0]);
+    }*/
 
 }
 
-__device__ void centroid_homogeneity(float *centroids, int i, int numclusters, char *shared_mem)
+__device__ double centroid_homogeneity(float *centroids, int i, int numclusters, double *shared_mem)
 {
-    /****************************************************************************************
-      OSATZEKO - PARA COMPLETAR
-    ****************************************************************************************/
-    int tid, idx, stride;
-    tid=threadIdx.x;
-    idx=threadIdx.x+blockIdx.x*blockDim.x;
-    stride=gridDim.x*blockDim.x;
-    double media_local=0;
-    for(int j=idx;j<numclusters;j+=stride){ //en cuda repartir las i entre los hilos + reduction
-      media_local+=word_distance(centroids+i*EMB_SIZE,centroids+j*EMB_SIZE);
-    }
-    //reduccion
-    double *media = (double*)shared_mem;
 
-    media[tid]=media_local;
+  int tid, idx;
+  tid=threadIdx.x;
+  // idx=threadIdx.x+blockIdx.x*blockDim.x;
+  double media_local=0;
+  for(int j=tid;j<numclusters;j+=blockDim.x){ //en cuda repartir las i entre los hilos + reduction
+    if(j==i)continue;
+    media_local+=word_distance(centroids+i*EMB_SIZE,centroids+j*EMB_SIZE);
+  }
+  double *media_bloque = (double*)shared_mem;
+  media_bloque[tid] = media_local;
+  __syncthreads();
+
+  for (int s = blockDim.x/2; s > 0; s >>= 1) {
+    if (tid < s) {
+      media_bloque[tid] += media_bloque[tid + s];
+    }
     __syncthreads();
-    for(int s = blockDim.x / 2; s > 0; s >>= 1) {
-      if(tid < s) {
-        media[tid] += media[tid + s];
-      }
-      __syncthreads();
-    }
-    if(tid==0){
-      atomicAddDouble(&media_global,media[0]);
-    }
+  }
+
+  return (tid == 0) ? media_bloque[0] : 0.0;
+
+
+    // int tid, idx, stride;
+    // tid=threadIdx.x;
+    // idx=threadIdx.x+blockIdx.x*blockDim.x;
+    // stride=gridDim.x*blockDim.x;
+    // double media_local=0;
+    // for(int j=idx;j<numclusters;j+=stride){ //en cuda repartir las i entre los hilos + reduction
+    //   media_local+=word_distance(centroids+i*EMB_SIZE,centroids+j*EMB_SIZE);
+    // }
+    // //reduccion
+    // double *media = (double*)shared_mem;
+    //
+    // media[tid]=media_local;
+    // __syncthreads();
+    // for(int s = blockDim.x / 2; s > 0; s >>= 1) {
+    //   if(tid < s) {
+    //     media[tid] += media[tid + s];
+    //   }
+    //   __syncthreads();
+    // }
+    // if(tid==0){
+    //   atomicAddDouble(&media_global[i],media[0]);
+    // }
 
 }
 
-__global__ void validation (float *words, struct clusterinfo *members, float *centroids, int numclusters, float *cent_homog, float *clust_homog, double *cvi)
+__global__ void validation (float *words, struct clusterinfo *members, float *centroids, int numclusters, float *cent_homog, float *clust_homog)
 {
+
+  int cluster_id = blockIdx.x;
+  if (cluster_id >= numclusters) return;
+
+  extern __shared__ double shared_mem[];
+
+  double cluster_sum = cluster_homogeneity(words, members, cluster_id, shared_mem);
+
+  if (threadIdx.x == 0) {
+    int n = members[cluster_id].number;
+    if (n > 1) {
+      clust_homog[cluster_id] = cluster_sum / (n*(n-1))/2;
+    } else {
+      clust_homog[cluster_id] = 0.0;
+    }
+  }
+
+  __syncthreads();
+  double centroid_sum = centroid_homogeneity(centroids, cluster_id,numclusters, shared_mem);
+  if (threadIdx.x == 0) {
+    cent_homog[cluster_id] = centroid_sum / (numclusters - 1);
+  }
+
+
+
+
+
+/*
   int     i, number;
   //float   cent_homog[NUMCLUSTERSMAX];
   double  disbat;
@@ -265,14 +320,7 @@ __global__ void validation (float *words, struct clusterinfo *members, float *ce
     }
     	// 5 multzo badira, 4 distantzia batu dira -- si son 5 clusters, se han sumado 4 dist.
     __syncthreads(); //quizas sobra
-  }
-  
-  // cvi index
-    /****************************************************************************************
-      OSATZEKO - PARA COMPLETAR
-      fmaxf: max of 2 floats --> maximoa kalkulatzeko -- para calcular el máximo
-    ****************************************************************************************/
-    //repartir hilos + reduccion
+  }*/
 
 
 }
@@ -283,7 +331,6 @@ __global__ void calculo_cvi(int numclusters,double *cvi, float *cent_homog, floa
   idx=threadIdx.x+blockIdx.x*blockDim.x;
   for(int i=idx; i<numclusters;i+=stride){
     atomicAddDouble(cvi,(cent_homog[i]-clust_homog[i])/fmaxf(clust_homog[i],cent_homog[i]));
-    //*cvi+=(cent_homog[i]-clust_homog[i])/fmaxf(clust_homog[i],cent_homog[i]);
   }
 }
 int main(int argc, char *argv[])
@@ -308,6 +355,8 @@ int main(int argc, char *argv[])
     int *d_wordcent, *d_cluster_sizes;
     struct clusterinfo *d_members;
 
+    float clust_homog[NUMCLUSTERSMAX];
+    float cent_homog[NUMCLUSTERSMAX];
    if (argc < 4) {
      printf("\nCall: kmeans embeddings.dat dictionary.dat myclusters.dat [numwords]\n\n");
      printf("\t(in) embeddings.dat and dictionary.dat\n");
@@ -332,11 +381,11 @@ int main(int argc, char *argv[])
   }
   
   fscanf (f1, "%d", &numwords);	       
-  if (argc == 5) numwords = atoi (argv[4]);  
+  if (argc >= 5) numwords = atoi (argv[4]);
   printf ("numwords = %d\n", numwords);
-  if (argc == 6) block_size=atoi(argv[5]);
+  if (argc >= 6) block_size=atoi(argv[5]);
   printf("block_size = %d\n",block_size);
-  if (argc == 7) block_size2=atoi(argv[6]);
+  if (argc >= 7) block_size2=atoi(argv[6]);
   printf("block_size2 = %d\n",block_size2);
   words = (float*)malloc (numwords*EMB_SIZE*sizeof(float));
   hiztegia = (char**)malloc (numwords*sizeof(char*));
@@ -374,7 +423,8 @@ int main(int argc, char *argv[])
   cudaMalloc(&d_clust_homog,NUMCLUSTERSMAX*sizeof(float));
   *cvi=-1;
   cudaMemcpy(d_words,words,numwords*EMB_SIZE*sizeof(float), cudaMemcpyHostToDevice);
-//cudaMemcpy(d_cluster_sizes,cluster_sizes,k*sizeof(int), cudaMemcpyHostToDevice);
+  cudaMemcpy(d_wordcent,wordcent,numwords*sizeof(int), cudaMemcpyHostToDevice);
+
 /******************************************************************/
   // A. kmeans kalkulatu -- Calcular kmeans
   // =========================================================
@@ -385,74 +435,66 @@ int main(int argc, char *argv[])
   {
     
     initialize_centroids(words, centroids, numwords, numclusters, EMB_SIZE); //no paralelizar
-    //memcpy HostToDevice
-    /*printf("Inicializacion de centroides:\nnumclusters = %d\n",numclusters);
-    for (int cent=0;cent<numclusters;cent++){
-      printf("\ncentroide %d: ",cent);
-      for(int k=0;k<EMB_SIZE;k++){
-        printf("%f||",centroids[cent*EMB_SIZE+k]);
-      }
-    }*/
-    cudaMemcpy(d_centroids,centroids,numclusters*EMB_SIZE*sizeof(float), cudaMemcpyHostToDevice);
-    //cudaMemcpy(centroidss,d_centroids,numclusters*EMB_SIZE*sizeof(float),cudaMemcpyDeviceToHost);
-    /*for (int cent=0;cent<numclusters;cent++){
-      printf("\ncentroide %d: ",cent);
-      for(int k=0;k<EMB_SIZE;k++){
-        printf("%f||",centroidss[cent*EMB_SIZE+k]);
-      }
-    }*/
 
-    block_amount=numwords/block_size;
+    cudaMemcpy(d_centroids,centroids,numclusters*EMB_SIZE*sizeof(float), cudaMemcpyHostToDevice);
+
+
+    block_amount = (numwords + block_size - 1) / block_size;
     for (iter = 0; iter < MAX_ITER; iter++) {
       *changed = 0;
-    /****************************************************************************************
-      OSATZEKO - PARA COMPLETAR
-       deitu k_means_calculate funtzioari -- llamar a la función k_means_calculate
-    ****************************************************************************************/
-      //k_means_calculate(float *words, int numwords, int dim, int numclusters, int *wordcent, float *centroids, int *changed)
 
       k_means_calculate<<< block_amount,block_size >>>(d_words,numwords,EMB_SIZE,numclusters,d_wordcent,d_centroids,changed);//paralelizar
       //sync
       cudaDeviceSynchronize();
       printf("it %d  changed =%d\n",iter,*changed);
       if (*changed==0) break; // Aldaketarik ez bada egon, atera -- Si no hay cambios, salir
-      //void update_centroids(float *words, float *centroids, int *wordcent, int numwords, int numclusters, int dim, int *cluster_sizes)
 
       update_centroids<<< block_amount,block_size >>>(d_words, d_centroids, d_wordcent, numwords, numclusters, EMB_SIZE, d_cluster_sizes);//paralelizar
 
     }
 
 
-
+    cudaMemcpy(wordcent,d_wordcent,numwords*sizeof(int), cudaMemcpyDeviceToHost);
   // B. Sailkatzearen "kalitatea" -- "Calidad" del cluster
   // =====================================================
-    printf("Kalitatea -- Calidad\n");   
+    printf("Kalitatea -- Calidad\n");
     for (i=0; i<numclusters; i++)  members[i].number = 0;
     // cluster bakoitzeko hitzak (osagaiak) eta kopurua -- palabras de cada clusters y cuantas son
+
     for (i=0; i<numwords; i++)  {
       cluster = wordcent[i];
       zenb = members[cluster].number;
       members[cluster].elements[zenb] = i;	// clusterreko hitza -- palabra del cluster
-      members[cluster].number ++; 
+      members[cluster].number ++;
+    }
+    for(i=0;i<numclusters;i++){
+      printf("members[%d] number=%d\n",i,members[i].number);
     }
     //memcpy members HostToDevice
     cudaMemcpy(d_members,members,numclusters*sizeof(clusterinfo), cudaMemcpyHostToDevice);
-    /****************************************************************************************
-      OSATZEKO - PARA COMPLETAR
-        cvi = validation (OSATZEKO - PARA COMPLETAR);
-   	if (cvi - cvi_old < DELTA) end classification;
-        else  continue classification;	
-    ****************************************************************************************/
-    //void validation (float *words, struct clusterinfo *members, float *centroids, int numclusters, double *cvi)
-    block_amount=numclusters*(1024/block_size2); //creo que tiene sentido ns
-    validation<<< block_amount,block_size2, block_size2*sizeof(double) >>>(d_words,d_members,d_centroids,numclusters,d_cent_homog,d_clust_homog,cvi); //paralelizar
-    block_amount=numclusters/block_size;
+
+
+
+    validation<<< numclusters,block_size2, block_size2*sizeof(double) >>>(d_words,d_members,d_centroids,numclusters,d_cent_homog,d_clust_homog); //paralelizar
+
+    block_amount = (numclusters+ block_size - 1) / block_size;
     cudaDeviceSynchronize();
 
+    cudaMemcpy(cent_homog,d_cent_homog,numclusters*sizeof(float), cudaMemcpyDeviceToHost);
+    cudaMemcpy(clust_homog,d_clust_homog,numclusters*sizeof(float), cudaMemcpyDeviceToHost);
+    printf("\ncent_homog: ");
+    for(int it=0;it<numclusters;it++){
+      printf("|%f|",cent_homog[it]);
+    }
+    printf("\nclust_homog: ");
+    for(int it=0;it<numclusters;it++){
+      printf("|%f|",clust_homog[it]);
+    }
     calculo_cvi <<<block_amount,block_size>>> (numclusters,cvi,d_cent_homog,d_clust_homog);
 
-    valor_cvi = *cvi/(double)numclusters;
-    if(valor_cvi-cvi_old < DELTA){
+    valor_cvi = *cvi/numclusters;
+    printf("cvi = %f cvi_old = %f\n",valor_cvi,cvi_old);
+    if(fabs(valor_cvi - cvi_old) < DELTA){
       end_classif=1;
     }
     else{
