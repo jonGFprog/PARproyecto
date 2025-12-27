@@ -157,7 +157,7 @@ double cluster_homogeneity(float *words, struct clusterinfo *members, int i, int
         media+=word_distance(words+members->elements[i]*EMB_SIZE,words+members->elements[j]*EMB_SIZE);
       }
     }*/
-    return media/members->number;
+    return media/members[i].number;
 }
 
 double centroid_homogeneity(float *centroids, int i, int numclusters)
@@ -303,6 +303,7 @@ int main(int argc, char *argv[])
        deitu k_means_calculate funtzioari -- llamar a la función k_means_calculate
     ****************************************************************************************/
       k_means_calculate(words,numwords,EMB_SIZE,numclusters,wordcent,centroids,&changed);
+      printf("changed = %d\n",changed);
       if (changed==0) break; // Aldaketarik ez bada egon, atera -- Si no hay cambios, salir
       update_centroids(words, centroids, wordcent, numwords, numclusters, EMB_SIZE, cluster_sizes);
     }  
