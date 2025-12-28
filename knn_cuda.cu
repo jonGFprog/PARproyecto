@@ -38,8 +38,7 @@ __device__ float cosine_similarity(float* vec1, float* vec2, int size) {
   float mag1,mag2;
   mag1 = magnitude(vec1, size);
   mag2 = magnitude(vec2, size);
-  float eps = 1e-8f;  // Evitar div por 0
-  return dot_product(vec1, vec2, size) / (mag1 * mag2 + eps);
+  return dot_product(vec1, vec2, size) / (mag1 * mag2);
 }
 
 
@@ -51,6 +50,26 @@ __global__ void knn_complet(float *words, int numwords, float *similarities) {
 
     //    OSATZEKO - PARA COMPLETAR
 ******************************************************************/
+  int idx,i,j,stride;
+  int pares;
+  float sim;
+  idx=threadIdx.x+blockIdx.x*blockDim.x;
+  stride=gridDim.x*blockDim.x;
+
+
+  pares=(numwords*(numwords+1))/2;
+
+  for(int p=idx;p<pares;p+=stride){
+    i=(int)((sqrt(8*(double)p+1)-1)/2);
+    j=p-(i*(i+1))/2;
+    sim=cosine_similarity(&words[i*EMB_SIZE],&words[j*EMB_SIZE],EMB_SIZE);
+    similarities[i*numwords+j]=sim;
+    similarities[j*numwords+i]=sim;
+  }
+
+
+
+/*
   int i,j, total_iteraciones;
   int idx, stride;
 
@@ -62,7 +81,7 @@ __global__ void knn_complet(float *words, int numwords, float *similarities) {
     j=it - (i*(i+1))/2;
     similarities[i*numwords+j]=cosine_similarity(words+i*EMB_SIZE,words+j*EMB_SIZE,EMB_SIZE);
     similarities[j*numwords+i]=similarities[i*numwords+j];
-  }
+  }*/
 }
 
 
@@ -74,10 +93,17 @@ int main(int argc, char *argv[])
     FILE    	*f1, *f2;
     float 	*similarities;
     float *d_similarities, *d_words;
-    struct timespec  t0, t1;
-    double tej;
+    //struct timespec  t0, t1;
+    //double tej_serie=0;
+    cudaEvent_t k1_start, k1_stop,k3_start, k3_stop;
+
+    float k1_milisegundos=0;
+    //float k2_milisegundos=0;
+    float k3_milisegundos=0;
+    float milisegundos=0;
+
     int block_size=128;
-    int block_amount=128;
+    int block_amount;
 
    if (argc < 3) {
      printf("Deia-Llamada: knn embeddins.dat similarities.dat [numwords]\n");
@@ -101,17 +127,26 @@ int main(int argc, char *argv[])
   printf ("numwords = %d\n", numwords);
   if (argc >= 5) block_size= atoi(argv[4]);
   printf("block_size = %d\n", block_size);
-  if(argc >= 6) block_amount=atoi(argv[5]);
-  printf("block_amount = %d\n",block_amount);
+  block_amount=(numwords + block_size - 1) / block_size;;
 /******************************************************************
     // Memoria dinamikoki esleitu words eta similarities datu-egiturei
     // Asignar memoria dinámica a las estructuras de datos words y similarities
 
     //    OSATZEKO - PARA COMPLETAR
 ******************************************************************/
-  words=(float*)malloc(numwords*EMB_SIZE*sizeof(float));
-  similarities=(float*)malloc(numwords*numwords*sizeof(float));
-  
+
+
+  words =(float*) malloc((size_t)numwords * EMB_SIZE * sizeof(float));
+  if (words == NULL) {
+    printf("Error: No se pudo asignar memoria para words\n");
+    exit(-1);
+  }
+  similarities = (float*)malloc((size_t)numwords * numwords * sizeof(float));
+  if (similarities == NULL) {
+    printf("Error: No se pudo asignar memoria para similarities\n");
+    free(words);
+    exit(-1);
+  }
   for (i=0; i<numwords; i++) {
    for (j=0; j<EMB_SIZE; j++) {
     fscanf (f1, "%f", &(words[i*EMB_SIZE+j]));
@@ -120,27 +155,67 @@ int main(int argc, char *argv[])
   printf ("Embeddingak irakurrita\n");
   
   printf("Hitz guztien auzokideak kalkulatzera zoaz\n");
-  clock_gettime (CLOCK_REALTIME, &t0);
+  //clock_gettime (CLOCK_REALTIME, &t0);
 /******************************************************************
     // Deitu funtzioari
     // Llamar a la función
     
     //    OSATZEKO - PARA COMPLETAR
 ******************************************************************/
+  cudaEventCreate(&k3_start);
+  cudaEventCreate(&k3_stop);
 
-  cudaMalloc(&d_words,numwords*EMB_SIZE*sizeof(float));
-  cudaMalloc(&d_similarities,numwords*numwords*sizeof(float));
+  cudaEventRecord(k3_start);
 
-  cudaMemcpy(d_words,words,numwords*EMB_SIZE*sizeof(float), cudaMemcpyHostToDevice);
+  cudaMalloc(&d_words,(size_t)numwords*EMB_SIZE*sizeof(float));
+  cudaMalloc(&d_similarities,(size_t)numwords*numwords*sizeof(float));
 
+  cudaMemcpy(d_words,words,(size_t)numwords*EMB_SIZE*sizeof(float), cudaMemcpyHostToDevice);
+
+  cudaEventRecord(k3_stop);
+  milisegundos=0;
+  cudaEventSynchronize(k3_stop);
+  cudaEventElapsedTime(&milisegundos, k3_start, k3_stop);
+  k3_milisegundos+=milisegundos;
+
+  cudaEventDestroy(k3_start);
+  cudaEventDestroy(k3_stop);
+
+  cudaEventCreate(&k1_start);
+  cudaEventCreate(&k1_stop);
+
+  cudaEventRecord(k1_start);
   knn_complet <<< block_amount, block_size>>> (d_words,numwords,d_similarities);
+  cudaEventRecord(k1_stop);
+  milisegundos=0;
+  cudaEventSynchronize(k1_stop);
+  cudaEventElapsedTime(&milisegundos, k1_start, k1_stop);
+  k1_milisegundos+=milisegundos;
 
-  cudaMemcpy(similarities,d_similarities,numwords*numwords*sizeof(float), cudaMemcpyDeviceToHost);
+  cudaEventDestroy(k1_start);
+  cudaEventDestroy(k1_stop);
 
-  clock_gettime (CLOCK_REALTIME, &t1);
+  cudaEventCreate(&k3_start);
+  cudaEventCreate(&k3_stop);
+
+  cudaEventRecord(k3_start);
+
+  cudaMemcpy(similarities,d_similarities,(size_t)numwords*numwords*sizeof(float), cudaMemcpyDeviceToHost);
+
+  cudaEventRecord(k3_stop);
+  milisegundos=0;
+  cudaEventSynchronize(k3_stop);
+  cudaEventElapsedTime(&milisegundos, k3_start, k3_stop);
+  k3_milisegundos+=milisegundos;
+
+  cudaEventDestroy(k3_start);
+  cudaEventDestroy(k3_stop);
+  //clock_gettime (CLOCK_REALTIME, &t1);
    
-  tej = (t1.tv_sec - t0.tv_sec) + (t1.tv_nsec - t0.tv_nsec) / (double)1e9;
-  printf("\n Tej. (serie) = %1.3f ms\n\n", tej*1000);
+
+  printf("Tej. k1 (kernel knn_complet) = %1.3f ms\n",k1_milisegundos );
+  printf("Tej. k3 (cudaMallocs y cudaMemcpys) = %1.3f ms\n",k3_milisegundos );
+  printf("Tej. (total) = %1.3f ms\n",k1_milisegundos + k3_milisegundos );
 
 // Idatzi antzekotasunak similarities fitxategietan -- Escribe las similitudes en el fichero similarities
   f2 = fopen (argv[2], "w");

@@ -146,18 +146,23 @@ double cluster_homogeneity(float *words, struct clusterinfo *members, int i, int
        Adi, i-j neurtuta, ez da gero j-i neurtu behar  / Ojo, una vez calculado el par i-j no hay que calcular el j-i
     ****************************************************************************************/
     double media=0;
-    for(int j=1;j<members[i].number;j++){
+    //int it=0;
+    int n=members[i].number;
+    for(int j=1;j<n;j++){
       for(int k=0;k<j;k++){
+        //it++;
         media+=word_distance(words+members[i].elements[j]*EMB_SIZE,words+members[i].elements[k]*EMB_SIZE);
       }
     }
     /*
+    printf("Iteraciones cluster homogenity calculada = %d\n",(n*(n-1))/2);
+    printf("Iteraciones cluster homogenity real = %d\n",it);
     for(int i=1;i<members->number;i++){ //en cuda repartir las i entre los hilos
       for(int j=0;j<i;j++){
         media+=word_distance(words+members->elements[i]*EMB_SIZE,words+members->elements[j]*EMB_SIZE);
       }
     }*/
-    return media/members[i].number;
+    return media/((n*(n-1))/2);
 }
 
 double centroid_homogeneity(float *centroids, int i, int numclusters)
@@ -166,10 +171,11 @@ double centroid_homogeneity(float *centroids, int i, int numclusters)
       OSATZEKO - PARA COMPLETAR
     ****************************************************************************************/
    double media=0;
-    for(int j=1;j<numclusters;j++){ //en cuda repartir las i entre los hilos
+    for(int j=0;j<numclusters;j++){ //en cuda repartir las i entre los hilos
+      if(j==i)continue;
       media+=word_distance(centroids+i*EMB_SIZE,centroids+j*EMB_SIZE);
     }
-    return media/numclusters;
+    return media/(numclusters-1);
 }
 
 double validation (float *words, struct clusterinfo *members, float *centroids, int numclusters)
@@ -303,7 +309,7 @@ int main(int argc, char *argv[])
        deitu k_means_calculate funtzioari -- llamar a la función k_means_calculate
     ****************************************************************************************/
       k_means_calculate(words,numwords,EMB_SIZE,numclusters,wordcent,centroids,&changed);
-      printf("changed = %d\n",changed);
+      //printf("it %d changed = %d\n",iter,changed);
       if (changed==0) break; // Aldaketarik ez bada egon, atera -- Si no hay cambios, salir
       update_centroids(words, centroids, wordcent, numwords, numclusters, EMB_SIZE, cluster_sizes);
     }  
@@ -330,7 +336,8 @@ int main(int argc, char *argv[])
     ****************************************************************************************/
     
     cvi=validation(words,members,centroids,numclusters);
-    if(cvi-cvi_old < DELTA){
+    //printf("cvi = %f cvi_old = %f\n",cvi,cvi_old);
+    if(fabs(cvi - cvi_old) < DELTA){
       end_classif=1;
     }
     else{

@@ -148,7 +148,7 @@ __global__ void k_means_calculate(float *words, int numwords, int dim, int numcl
 __device__ double cluster_homogeneity(float *words, struct clusterinfo *members, int cluster_id, double *shared_mem)
 {
 
-    int tid, idx, stride,num_elementos;
+    int tid,num_elementos;
     tid=threadIdx.x;
     num_elementos=members[cluster_id].number;
     double media_local=0.0;
@@ -199,7 +199,7 @@ __device__ double cluster_homogeneity(float *words, struct clusterinfo *members,
 __device__ double centroid_homogeneity(float *centroids, int i, int numclusters, double *shared_mem)
 {
 
-  int tid, idx;
+  int tid;
   tid=threadIdx.x;
   // idx=threadIdx.x+blockIdx.x*blockDim.x;
   double media_local=0;
@@ -360,8 +360,7 @@ int main(int argc, char *argv[])
     int *d_wordcent, *d_cluster_sizes;
     struct clusterinfo *d_members;
 
-    float clust_homog[NUMCLUSTERSMAX];
-    float cent_homog[NUMCLUSTERSMAX];
+
    if (argc < 4) {
      printf("\nCall: kmeans embeddings.dat dictionary.dat myclusters.dat [numwords]\n\n");
      printf("\t(in) embeddings.dat and dictionary.dat\n");
@@ -625,6 +624,7 @@ int main(int argc, char *argv[])
   printf("Tej. k1 (kernel update_centroids y k_means_calculate) = %1.3f ms\n",k1_milisegundos );
   printf("Tej. k2 (kernel validation y calculo_cvi) = %1.3f ms\n",k2_milisegundos );
   printf("Tej. k3 (cudaMallocs y cudaMemcpys) = %1.3f ms\n",k3_milisegundos );
+  printf("\n Tej. (total) = %1.3f ms\n", tej_serie*1000+k1_milisegundos + k2_milisegundos + k3_milisegundos );
 // Idatzi clusterrak fitxategietan -- Escribir los clusters en el fichero
   f3 = fopen (argv[3], "w");
   if (f3 == NULL) {

@@ -72,7 +72,7 @@ __global__ void perform_analogy(float *words, int idx1, int idx2, int idx3, floa
  } 
 __global__ void find_closest_word(float *result_vector, float *words, int numwords, int idx1, int idx2, int idx3, float *out_sim,int *out_pos){
   //block_size*block_amount debe ser al menos numwords
-  int tid, idx, stride, stride2;
+  int tid, idx, stride;
   tid=threadIdx.x;
   idx=threadIdx.x+blockIdx.x*blockDim.x;
   stride=gridDim.x*blockDim.x;
@@ -134,7 +134,12 @@ int main(int argc, char *argv[])
     float	*sim_cosine;
         
     struct timespec  t0, t1;
-    double tej;
+    double tej_serie=0;
+    cudaEvent_t k1_start, k1_stop,k3_start, k3_stop;
+
+    float k1_milisegundos=0;
+    float k3_milisegundos=0;
+    float milisegundos=0;
 
     int block_size=128;
     int block_amount;
@@ -142,6 +147,7 @@ int main(int argc, char *argv[])
     int *out_pos;
     float *out_sim;
     float *d_words, *d_result_vector,*d_out_sim;
+
 
    if (argc < 3) {
      printf("Deia: analogia embedding_fitx hiztegi_fitx\n");
@@ -204,13 +210,17 @@ int main(int argc, char *argv[])
      printf("Errorea: Ez daude hitz guztiak hiztegian / No se encontraron todas las palabras en el vocabulario.\n");
      return -1;
   }
-   
-  clock_gettime (CLOCK_REALTIME, &t0);
+
     /***************************************************/
     //    OSATZEKO - PARA COMPLETAR
     //     1. call perform_analogy function
     //     2. call find_closest_word function   
    /***************************************************/ 
+   cudaEventCreate(&k3_start);
+   cudaEventCreate(&k3_stop);
+
+   cudaEventRecord(k3_start);
+
    cudaMalloc(&d_words,numwords*EMB_SIZE*sizeof(float));
    cudaMalloc(&d_result_vector,EMB_SIZE*sizeof(float));
    //cudaMalloc(&d_max_similarity,sizeof(float));
@@ -221,6 +231,19 @@ int main(int argc, char *argv[])
 
    cudaMemcpy(d_words,words,numwords*EMB_SIZE*sizeof(float), cudaMemcpyHostToDevice);
 
+   cudaEventRecord(k3_stop);
+   milisegundos=0;
+   cudaEventSynchronize(k3_stop);
+   cudaEventElapsedTime(&milisegundos, k3_start, k3_stop);
+   k3_milisegundos+=milisegundos;
+
+   cudaEventDestroy(k3_start);
+   cudaEventDestroy(k3_stop);
+
+   cudaEventCreate(&k1_start);
+   cudaEventCreate(&k1_stop);
+   cudaEventRecord(k1_start);
+
    perform_analogy <<< (EMB_SIZE+block_size-1)/block_size,block_size >>> (d_words, idx1, idx2, idx3, d_result_vector);
    cudaDeviceSynchronize();
 
@@ -229,17 +252,41 @@ int main(int argc, char *argv[])
    find_closest_word <<< block_amount,block_size,block_size*(sizeof(float)+sizeof(int)) >>> (d_result_vector, d_words, numwords, idx1,idx2,idx3,d_out_sim,d_out_pos);
   //(float *result_vector, float *words, int numwords, int idx1, int idx2, int idx3, int *closest_word_idx, float *max_similarity,float *out_sim,int *out_pos)
 
+   cudaEventRecord(k1_stop);
+   milisegundos=0;
+   cudaEventSynchronize(k1_stop);
+   cudaEventElapsedTime(&milisegundos, k1_start, k1_stop);
+   k1_milisegundos+=milisegundos;
+   cudaEventDestroy(k1_start);
+   cudaEventDestroy(k1_stop);
+
+   cudaEventCreate(&k3_start);
+   cudaEventCreate(&k3_stop);
+
+   cudaEventRecord(k3_start);
+
    cudaMemcpy(out_sim,d_out_sim,block_amount*sizeof(float), cudaMemcpyDeviceToHost);
    cudaMemcpy(out_pos,d_out_pos,block_amount*sizeof(int), cudaMemcpyDeviceToHost);
+
+   cudaEventRecord(k3_stop);
+   milisegundos=0;
+   cudaEventSynchronize(k3_stop);
+   cudaEventElapsedTime(&milisegundos, k3_start, k3_stop);
+   k3_milisegundos+=milisegundos;
+
+   cudaEventDestroy(k3_start);
+   cudaEventDestroy(k3_stop);
+
+   clock_gettime (CLOCK_REALTIME, &t0);
    max_similarity=out_sim[0];
    closest_word_idx=out_pos[0];
-   printf("i=0 similarity=%f, pos=%d\n",out_sim[0],out_pos[0]);
+   //printf("i=0 similarity=%f, pos=%d\n",out_sim[0],out_pos[0]);
    for(int i=1;i<block_amount;i++){
      if(out_sim[i]>max_similarity){
       max_similarity=out_sim[i];
       closest_word_idx=out_pos[i];
     }
-    printf("i=%d similarity=%f, pos=%d\n",i,out_sim[i],out_pos[i]);
+    //printf("i=%d similarity=%f, pos=%d\n",i,out_sim[i],out_pos[i]);
    }
    clock_gettime (CLOCK_REALTIME, &t1);
    
@@ -248,8 +295,11 @@ int main(int argc, char *argv[])
     } else printf("No close word found.\n");
  
   
-  tej = (t1.tv_sec - t0.tv_sec) + (t1.tv_nsec - t0.tv_nsec) / (double)1e9;
-  printf("\n Tej. (serie) = %1.3f ms\n\n", tej*1000);
+  tej_serie = (t1.tv_sec - t0.tv_sec) + (t1.tv_nsec - t0.tv_nsec) / (double)1e9;
+  printf("\nTej. (serie) = %1.9f nanoseg\n", tej_serie);
+  printf("Tej. k1 (kernel perform_analogy y find_closest_word) = %1.3f ms\n",k1_milisegundos );
+  printf("Tej. k3 (cudaMallocs y cudaMemcpys) = %1.3f ms\n",k3_milisegundos );
+  printf("Tej. (total) = %1.3f ms\n", tej_serie*1000+k1_milisegundos + k3_milisegundos );
 
   fclose (f1);
   fclose (f2);
