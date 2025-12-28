@@ -348,8 +348,13 @@ int main(int argc, char *argv[])
     struct clusterinfo  members[NUMCLUSTERSMAX];
 
     struct timespec  t0, t1;
-    double tej;
+    double tej_serie=0;
+    cudaEvent_t k1_start, k1_stop,k2_start, k2_stop,k3_start, k3_stop;
 
+    float k1_milisegundos=0;
+    float k2_milisegundos=0;
+    float k3_milisegundos=0;
+    float milisegundos=0;
     float *d_words, *d_centroids,*d_cent_homog,*d_clust_homog;
     //double *d_cvi;
     int *d_wordcent, *d_cluster_sizes;
@@ -411,7 +416,12 @@ int main(int argc, char *argv[])
   //float *centroidss = (float *)malloc(k * EMB_SIZE * sizeof(float));
 
   int *cluster_sizes = (int *)calloc(k, sizeof(int));
-  
+
+  cudaEventCreate(&k3_start);
+  cudaEventCreate(&k3_stop);
+
+  cudaEventRecord(k3_start);
+
   cudaMalloc(&d_words,numwords*EMB_SIZE*sizeof(float));
   cudaMalloc(&d_wordcent,numwords*sizeof(int));
   cudaMalloc(&d_centroids,k*EMB_SIZE*sizeof(float));
@@ -425,39 +435,93 @@ int main(int argc, char *argv[])
   cudaMemcpy(d_words,words,numwords*EMB_SIZE*sizeof(float), cudaMemcpyHostToDevice);
   cudaMemcpy(d_wordcent,wordcent,numwords*sizeof(int), cudaMemcpyHostToDevice);
 
+  cudaEventRecord(k3_stop);
+  milisegundos=0;
+  cudaEventSynchronize(k3_stop);
+  cudaEventElapsedTime(&milisegundos, k3_start, k3_stop);
+  k3_milisegundos+=milisegundos;
+
+  cudaEventDestroy(k3_start);
+  cudaEventDestroy(k3_stop);
 /******************************************************************/
   // A. kmeans kalkulatu -- Calcular kmeans
   // =========================================================
   printf("K_means\n");
-  clock_gettime (CLOCK_REALTIME, &t0);
+  //clock_gettime (CLOCK_REALTIME, &t0);
   
   while (numclusters < NUMCLUSTERSMAX && end_classif == 0)
   {
-    
+    //clockgetime TODO
+    clock_gettime (CLOCK_REALTIME, &t0);
     initialize_centroids(words, centroids, numwords, numclusters, EMB_SIZE); //no paralelizar
+    clock_gettime (CLOCK_REALTIME, &t1);
+    tej_serie += (t1.tv_sec - t0.tv_sec) + (t1.tv_nsec - t0.tv_nsec) / (double)1e9;
+    //clockgetime
+    cudaEventCreate(&k3_start);
+    cudaEventCreate(&k3_stop);
+
+    cudaEventRecord(k3_start);
 
     cudaMemcpy(d_centroids,centroids,numclusters*EMB_SIZE*sizeof(float), cudaMemcpyHostToDevice);
 
+    cudaEventRecord(k3_stop);
+    milisegundos=0;
+    cudaEventSynchronize(k3_stop);
+    cudaEventElapsedTime(&milisegundos, k3_start, k3_stop);
+    k3_milisegundos+=milisegundos;
+
+    cudaEventDestroy(k3_start);
+    cudaEventDestroy(k3_stop);
 
     block_amount = (numwords + block_size - 1) / block_size;
+
+    cudaEventCreate(&k1_start);
+    cudaEventCreate(&k1_stop);
+    cudaEventRecord(k1_start);
+
     for (iter = 0; iter < MAX_ITER; iter++) {
       *changed = 0;
 
+
       k_means_calculate<<< block_amount,block_size >>>(d_words,numwords,EMB_SIZE,numclusters,d_wordcent,d_centroids,changed);//paralelizar
+
       //sync
       cudaDeviceSynchronize();
-      printf("it %d  changed =%d\n",iter,*changed);
+      //printf("it %d  changed =%d\n",iter,*changed);
       if (*changed==0) break; // Aldaketarik ez bada egon, atera -- Si no hay cambios, salir
 
       update_centroids<<< block_amount,block_size >>>(d_words, d_centroids, d_wordcent, numwords, numclusters, EMB_SIZE, d_cluster_sizes);//paralelizar
 
     }
 
+    cudaEventRecord(k1_stop);
+    milisegundos=0;
+    cudaEventSynchronize(k1_stop);
+    cudaEventElapsedTime(&milisegundos, k1_start, k1_stop);
+    k1_milisegundos+=milisegundos;
+    cudaEventDestroy(k1_start);
+    cudaEventDestroy(k1_stop);
+
+    cudaEventCreate(&k3_start);
+    cudaEventCreate(&k3_stop);
+
+    cudaEventRecord(k3_start);
 
     cudaMemcpy(wordcent,d_wordcent,numwords*sizeof(int), cudaMemcpyDeviceToHost);
+
+    cudaEventRecord(k3_stop);
+    milisegundos=0;
+    cudaEventSynchronize(k3_stop);
+    cudaEventElapsedTime(&milisegundos, k3_start, k3_stop);
+    k3_milisegundos+=milisegundos;
+
+    cudaEventDestroy(k3_start);
+    cudaEventDestroy(k3_stop);
   // B. Sailkatzearen "kalitatea" -- "Calidad" del cluster
   // =====================================================
+    clock_gettime (CLOCK_REALTIME, &t0);
     printf("Kalitatea -- Calidad\n");
+    //clockgetime
     for (i=0; i<numclusters; i++)  members[i].number = 0;
     // cluster bakoitzeko hitzak (osagaiak) eta kopurua -- palabras de cada clusters y cuantas son
 
@@ -467,20 +531,41 @@ int main(int argc, char *argv[])
       members[cluster].elements[zenb] = i;	// clusterreko hitza -- palabra del cluster
       members[cluster].number ++;
     }
-    for(i=0;i<numclusters;i++){
-      printf("members[%d] number=%d\n",i,members[i].number);
-    }
+    clock_gettime (CLOCK_REALTIME, &t1);
+    tej_serie += (t1.tv_sec - t0.tv_sec) + (t1.tv_nsec - t0.tv_nsec) / (double)1e9;
+    //clockgetime
+    // for(i=0;i<numclusters;i++){
+    //   printf("members[%d] number=%d\n",i,members[i].number);
+    // }
     //memcpy members HostToDevice
+    cudaEventCreate(&k3_start);
+    cudaEventCreate(&k3_stop);
+
+    cudaEventRecord(k3_start);
+
     cudaMemcpy(d_members,members,numclusters*sizeof(clusterinfo), cudaMemcpyHostToDevice);
 
+    cudaEventRecord(k3_stop);
+    milisegundos=0;
+    cudaEventSynchronize(k3_stop);
+    cudaEventElapsedTime(&milisegundos, k3_start, k3_stop);
+    k3_milisegundos+=milisegundos;
 
+    cudaEventDestroy(k3_start);
+    cudaEventDestroy(k3_stop);
+
+    cudaEventCreate(&k2_start);
+    cudaEventCreate(&k2_stop);
+
+    cudaEventRecord(k2_start);
 
     validation<<< numclusters,block_size2, block_size2*sizeof(double) >>>(d_words,d_members,d_centroids,numclusters,d_cent_homog,d_clust_homog); //paralelizar
+
 
     block_amount = (numclusters+ block_size - 1) / block_size;
     cudaDeviceSynchronize();
 
-    cudaMemcpy(cent_homog,d_cent_homog,numclusters*sizeof(float), cudaMemcpyDeviceToHost);
+    /*cudaMemcpy(cent_homog,d_cent_homog,numclusters*sizeof(float), cudaMemcpyDeviceToHost);
     cudaMemcpy(clust_homog,d_clust_homog,numclusters*sizeof(float), cudaMemcpyDeviceToHost);
     printf("\ncent_homog: ");
     for(int it=0;it<numclusters;it++){
@@ -489,11 +574,11 @@ int main(int argc, char *argv[])
     printf("\nclust_homog: ");
     for(int it=0;it<numclusters;it++){
       printf("|%f|",clust_homog[it]);
-    }
+    }*/
     calculo_cvi <<<block_amount,block_size>>> (numclusters,cvi,d_cent_homog,d_clust_homog);
 
     valor_cvi = *cvi/numclusters;
-    printf("cvi = %f cvi_old = %f\n",valor_cvi,cvi_old);
+    //printf("cvi = %f cvi_old = %f\n",valor_cvi,cvi_old);
     if(fabs(valor_cvi - cvi_old) < DELTA){
       end_classif=1;
     }
@@ -501,23 +586,45 @@ int main(int argc, char *argv[])
       numclusters+=10;
       cvi_old=valor_cvi;
     }
+    cudaEventRecord(k2_stop);
+    milisegundos=0;
+    cudaEventSynchronize(k2_stop);
+    cudaEventElapsedTime(&milisegundos, k2_start, k2_stop);
+    k2_milisegundos+=milisegundos;
 
+    cudaEventDestroy(k2_start);
+    cudaEventDestroy(k2_stop);
   }
 
   //memcpy
     
   clock_gettime (CLOCK_REALTIME, &t1);
+  cudaEventCreate(&k3_start);
+  cudaEventCreate(&k3_stop);
+
+  cudaEventRecord(k3_start);
   cudaMemcpy(cluster_sizes,d_cluster_sizes,k*sizeof(int), cudaMemcpyDeviceToHost);
   cudaMemcpy(wordcent,d_wordcent,numwords*sizeof(int), cudaMemcpyDeviceToHost);
+
+  cudaEventRecord(k3_stop);
+  milisegundos=0;
+  cudaEventSynchronize(k3_stop);
+  cudaEventElapsedTime(&milisegundos, k3_start, k3_stop);
+  k3_milisegundos+=milisegundos;
+
+  cudaEventDestroy(k3_start);
+  cudaEventDestroy(k3_stop);
   /******************************************************************/
 
   for (i=0; i<numclusters; i++){
     printf ("%d. cluster, %d words \n", i, cluster_sizes[i]);
   }
 
-  tej = (t1.tv_sec - t0.tv_sec) + (t1.tv_nsec - t0.tv_nsec) / (double)1e9;
-  printf("\n Tej. (serie) = %1.3f ms\n\n", tej*1000);
 
+  printf("\n Tej. (serie) = %1.3f ms\n", tej_serie*1000);
+  printf("Tej. k1 (kernel update_centroids y k_means_calculate) = %1.3f ms\n",k1_milisegundos );
+  printf("Tej. k2 (kernel validation y calculo_cvi) = %1.3f ms\n",k2_milisegundos );
+  printf("Tej. k3 (cudaMallocs y cudaMemcpys) = %1.3f ms\n",k3_milisegundos );
 // Idatzi clusterrak fitxategietan -- Escribir los clusters en el fichero
   f3 = fopen (argv[3], "w");
   if (f3 == NULL) {
