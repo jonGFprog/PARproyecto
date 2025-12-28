@@ -55,7 +55,7 @@ void knn_complet(float *words, int numwords, float *similarities) {
 ******************************************************************/
   int total_iterations=0;
   for(i=0;i<numwords;i++){
-    for(j=0;j<i+1;j++){
+    for(j=0;j<=i;j++){
       total_iterations++;
       similarities[i*numwords+j]=cosine_similarity(words+i*EMB_SIZE,words+j*EMB_SIZE,EMB_SIZE);
       similarities[j*numwords+i]=similarities[i*numwords+j];
@@ -104,9 +104,10 @@ int main(int argc, char *argv[])
 
     //    OSATZEKO - PARA COMPLETAR
 ******************************************************************/
-  words=malloc(numwords*EMB_SIZE*sizeof(float));
-  similarities=malloc(numwords*numwords*sizeof(float));
-  
+  //words=malloc(numwords*EMB_SIZE*sizeof(float));
+  //similarities=malloc(numwords*numwords*sizeof(float));
+  words = malloc((size_t)numwords * EMB_SIZE * sizeof(float));
+  similarities = malloc((size_t)numwords * numwords * sizeof(float));
   for (i=0; i<numwords; i++) {
    for (j=0; j<EMB_SIZE; j++) {
     fscanf (f1, "%f", &(words[i*EMB_SIZE+j]));
